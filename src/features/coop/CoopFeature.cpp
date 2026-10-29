@@ -2,6 +2,8 @@
 #include "CommandConsole.h"
 #include "features/coop/CoopFeature.h"
 #include <boost/algorithm/string.hpp>
+#include <ctime>
+#include <fstream>
 #include <sstream>
 
 // Co-op prototype: connects game instances over ENet.
@@ -13,9 +15,32 @@
 //   COOP_STATUS               show the session state
 //   COOP_LEAVE                close the session
 
+// Two game copies on one PC share FTL_HS.log, so each role also gets its own file
+static void AppendRoleLog(const std::string& message)
+{
+    const char *name;
+    switch (Coop::Net::GetInstance().GetRole())
+    {
+    case Coop::Role::Host: name = "hs_coop_host.log"; break;
+    case Coop::Role::Client: name = "hs_coop_client.log"; break;
+    default: name = "hs_coop.log"; break;
+    }
+
+    std::string folder = FileHelper::getUserFolder();
+    if (!folder.empty() && folder.back() != '/' && folder.back() != '\\') folder += '/';
+
+    char stamp[16];
+    time_t now = time(nullptr);
+    strftime(stamp, sizeof(stamp), "%H:%M:%S", localtime(&now));
+
+    std::ofstream file(folder + name, std::ios::app);
+    file << stamp << " " << message << "\n";
+}
+
 void Coop::Log(const std::string& message)
 {
     hs_log_file("[coop] %s\n", message.c_str());
+    AppendRoleLog(message);
     PrintHelper::GetInstance()->AddMessage("[coop] " + message);
 }
 

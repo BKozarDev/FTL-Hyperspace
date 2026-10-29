@@ -100,13 +100,6 @@ bool TextActive()
     return ipInput && ipInput->GetActive();
 }
 
-void SetSeedText(uint32_t seed)
-{
-    SeedInputBox::seedInput->Stop();
-    SeedInputBox::seedInput->SetText(std::to_string(seed));
-    SeedInputBox::firstClick = false;
-}
-
 uint32_t PickSeed()
 {
     // Keep a seed the host typed in
@@ -197,7 +190,7 @@ bool OnStartClicked()
     }
 
     uint32_t seed = PickSeed();
-    SetSeedText(seed);
+    Coop::Run::ForceNextSeed(seed);
 
     Coop::Writer msg(Coop::MSG_START_RUN);
     msg.U32(seed);
@@ -443,7 +436,7 @@ void OnLoop()
         if (inHangar)
         {
             Log("Host started the run, seed " + std::to_string(pendingSeed));
-            SetSeedText(pendingSeed);
+            Run::ForceNextSeed(pendingSeed);
             PressStart();
         }
         else

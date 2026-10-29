@@ -2,24 +2,33 @@
 #include "features/coop/CoopFeature.h"
 #include "features/coop/CoopProtocol.h"
 #include <cmath>
+#include <ctime>
+#include <random>
 
 // Keeps a co-op run in step once it has started from the lobby:
-// - the host leads jumps: a beacon or sector it jumps to is sent to the clients,
-//   which jump there the same way Hyperspace forces the boss jump;
-//   clients cannot start jumps of their own while connected
+// - the host leads jumps: when its StarMap hands out a new location, the beacon or
+//   sector is sent to the clients, which jump there the way Hyperspace forces the
+//   boss jump; clients cannot start jumps of their own while connected
+// - when the host restarts the run, the clients restart with the same seed
 // - pausing (space) on any side pauses everyone
 
 namespace
 {
 
-bool wasReadyToTravel = false;
 int lastSelectedSector = -1;
+const Location *lastSentTarget = nullptr;
+int lastSentLevel = -1;
 bool wasPaused = false;
+bool seedHookInstalled = false;
+
+bool pendingRestart = false;
+uint32_t pendingRestartSeed = 0;
+bool followingRestart = false;
 
 bool InRun()
 {
     CApp *app = G_->GetCApp();
-    return app && !app->menu.bOpen && app->world && app->world->bStartedGame && app->gui;
+    return app && !app->menu.bOpen && app->world && app->gui;
 }
 
 bool IsFollower()
@@ -39,23 +48,30 @@ StarMap& Map()
     return G_->GetWorld()->starMap;
 }
 
-void SendHostJump(StarMap& map)
+uint32_t RandomSeed()
+{
+    std::mt19937 rng((uint32_t)time(nullptr) ^ (uint32_t)clock() ^ (uint32_t)(uintptr_t)&rng);
+    return rng();
+}
+
+void SendHostJump(bool sectorJump, const Location *target, int worldLevel)
 {
     Coop::Writer msg(Coop::MSG_JUMP);
-    if (map.potentialLoc == &map.dummyNewSector)
+    if (sectorJump)
     {
         msg.U8(Coop::JUMP_SECTOR).U32((uint32_t)lastSelectedSector);
         Coop::Log("Jumping to the next sector, the others follow");
     }
-    else if (map.potentialLoc)
+    else if (target)
     {
-        msg.U8(Coop::JUMP_BEACON).U32((uint32_t)(int32_t)std::lround(map.potentialLoc->loc.x)).U32((uint32_t)(int32_t)std::lround(map.potentialLoc->loc.y));
+        msg.U8(Coop::JUMP_BEACON).U32((uint32_t)(int32_t)std::lround(target->loc.x)).U32((uint32_t)(int32_t)std::lround(target->loc.y));
+        Coop::Log("Jumping, the others follow");
     }
     else
     {
         return;
     }
-    msg.U32((uint32_t)map.worldLevel);
+    msg.U32((uint32_t)worldLevel);
     Coop::GetNet().SendToAll(msg.Data(), msg.Size());
 }
 
@@ -115,12 +131,35 @@ void FollowSectorJump(int sector, int worldLevel)
     StartJump(map, &map.dummyNewSector);
 }
 
+// Lets the C++ side pick the run seed through Hyperspace's GET_RUN_SEED event
+void InstallSeedHook()
+{
+    if (seedHookInstalled) return;
+    seedHookInstalled = true;
+
+    Global::GetInstance()->getLuaContext()->runLuaString(R"(
+        script.on_internal_event(Defines.InternalEvents.GET_RUN_SEED, function(isCustomSeed, seed)
+            local forced = _G.hs_coop_next_seed
+            if forced ~= nil then
+                _G.hs_coop_next_seed = nil
+                return isCustomSeed, forced
+            end
+        end)
+    )");
+}
+
 }
 
 namespace Coop
 {
 namespace Run
 {
+
+void ForceNextSeed(uint32_t seed)
+{
+    InstallSeedHook();
+    Global::GetInstance()->getLuaContext()->runLuaString("_G.hs_coop_next_seed = " + std::to_string(seed));
+}
 
 void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size)
 {
@@ -131,19 +170,27 @@ void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size)
     case MSG_JUMP:
     {
         uint8_t kind = in.U8();
-        if (kind == JUMP_BEACON)
+        int a = (int32_t)in.U32();
+        int b = kind == JUMP_BEACON ? (int32_t)in.U32() : 0;
+        int worldLevel = (int32_t)in.U32();
+        if (!in.ok || GetNet().GetRole() != Role::Client) break;
+        if (!InRun())
         {
-            int x = (int32_t)in.U32();
-            int y = (int32_t)in.U32();
-            int worldLevel = (int32_t)in.U32();
-            if (in.ok && InRun() && GetNet().GetRole() == Role::Client) FollowBeaconJump(x, y, worldLevel);
+            Log("Got the host's jump, but you are not in a run");
+            break;
         }
-        else if (kind == JUMP_SECTOR)
-        {
-            int sector = (int32_t)in.U32();
-            int worldLevel = (int32_t)in.U32();
-            if (in.ok && InRun() && GetNet().GetRole() == Role::Client) FollowSectorJump(sector, worldLevel);
-        }
+
+        if (kind == JUMP_BEACON) FollowBeaconJump(a, b, worldLevel);
+        else if (kind == JUMP_SECTOR) FollowSectorJump(a, worldLevel);
+        break;
+    }
+    case MSG_RESTART:
+    {
+        uint32_t seed = in.U32();
+        if (!in.ok || GetNet().GetRole() != Role::Client) break;
+        // Restarted from OnLoop, not from inside the network poll
+        pendingRestart = true;
+        pendingRestartSeed = seed;
         break;
     }
     case MSG_PAUSE:
@@ -172,19 +219,37 @@ void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size)
 
 void OnLoop()
 {
+    if (pendingRestart)
+    {
+        pendingRestart = false;
+        if (InRun())
+        {
+            Log("Host restarted the run, seed " + std::to_string(pendingRestartSeed));
+            ForceNextSeed(pendingRestartSeed);
+            followingRestart = true;
+            G_->GetWorld()->Restart();
+            followingRestart = false;
+        }
+        else
+        {
+            Log("Host restarted the run, but you are not in a run");
+        }
+    }
+
     if (!InRun())
     {
-        wasReadyToTravel = false;
         wasPaused = false;
+        lastSentTarget = nullptr;
+        lastSentLevel = -1;
         return;
     }
 
-    StarMap& map = Map();
-    if (IsLeader() && map.readyToTravel && !wasReadyToTravel)
+    // The jump has been taken, the next one is new even if it reuses the same location
+    if (!Map().readyToTravel)
     {
-        SendHostJump(map);
+        lastSentTarget = nullptr;
+        lastSentLevel = -1;
     }
-    wasReadyToTravel = map.readyToTravel;
 
     bool paused = G_->GetCApp()->gui->bPaused;
     if (paused != wasPaused)
@@ -200,6 +265,46 @@ void OnLoop()
 }
 
 }
+}
+
+// The host's map hands out the location it is jumping to: tell the clients
+HOOK_METHOD(StarMap, GetNewLocation, () -> Location*)
+{
+    LOG_HOOK("HOOK_METHOD -> StarMap::GetNewLocation -> Begin (CoopRun.cpp)\n")
+    if (!readyToTravel || !IsLeader()) return super();
+
+    bool sectorJump = potentialLoc == &dummyNewSector;
+    Location *target = potentialLoc;
+    int level = worldLevel;
+
+    Location *ret = super();
+    // Sent once per jump, even if the game asks again
+    if (target != lastSentTarget || level != lastSentLevel)
+    {
+        lastSentTarget = target;
+        lastSentLevel = level;
+        SendHostJump(sectorJump, target, level);
+    }
+    return ret;
+}
+
+HOOK_METHOD(WorldManager, Restart, () -> void)
+{
+    LOG_HOOK("HOOK_METHOD -> WorldManager::Restart -> Begin (CoopRun.cpp)\n")
+    if (IsLeader() && !followingRestart)
+    {
+        uint32_t seed = RandomSeed();
+        Coop::Run::ForceNextSeed(seed);
+        lastSentTarget = nullptr;
+        lastSentLevel = -1;
+
+        Coop::Writer msg(Coop::MSG_RESTART);
+        msg.U32(seed);
+        Coop::GetNet().SendToAll(msg.Data(), msg.Size());
+        Coop::Log("Restarting the co-op run, seed " + std::to_string(seed));
+    }
+
+    super();
 }
 
 HOOK_METHOD(StarMap, SelectNewSector, (int sector) -> void)

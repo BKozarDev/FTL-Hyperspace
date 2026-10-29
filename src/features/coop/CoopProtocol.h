@@ -18,6 +18,7 @@ enum GameMsg : uint8_t
     MSG_START_RUN = 17,   // u32 seed (host -> clients)
     MSG_JUMP = 18,        // u8 kind (JUMP_BEACON: u32 x, u32 y | JUMP_SECTOR: u32 sector), u32 worldLevel (host -> clients)
     MSG_PAUSE = 19,       // u8 paused
+    MSG_RESTART = 20,     // u32 seed (host -> clients)
 };
 
 enum JumpKind : uint8_t

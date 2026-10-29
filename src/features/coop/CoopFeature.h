@@ -22,11 +22,14 @@ namespace Lobby
     void OnLoop();
 }
 
-// Keeps a started run in step: host-led jumps and shared pause
+// Keeps a started run in step: host-led jumps, restarts and shared pause
 namespace Run
 {
     void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
     void OnLoop();
+
+    // The next run (new game or restart) uses this seed instead of a random one
+    void ForceNextSeed(uint32_t seed);
 }
 
 }
