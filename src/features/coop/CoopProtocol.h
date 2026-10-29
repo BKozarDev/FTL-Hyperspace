@@ -21,7 +21,12 @@ enum GameMsg : uint8_t
     MSG_RESTART = 20,     // u32 seed (host -> clients)
     MSG_EVENT_CHOICE = 21, // u32 index, str choiceText (host -> clients)
     MSG_LOBBY_SETTINGS = 22, // u8 difficulty, u8 advancedEdition (host -> clients)
+    MSG_SHIP_STATE = 23,  // u8 origin, str blueprint, str name, u32 hull, u32 maxHull, u8 shields, u8 maxShields
 };
+
+// MSG_SHIP_STATE origin: the sender's own ship, or one the host relays (peer id + 1)
+constexpr uint8_t ORIGIN_SENDER = 255;
+constexpr uint8_t ORIGIN_HOST = 0;
 
 enum JumpKind : uint8_t
 {

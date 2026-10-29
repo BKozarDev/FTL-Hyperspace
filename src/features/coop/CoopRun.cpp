@@ -443,8 +443,7 @@ HOOK_METHOD(StarMap, KeyDown, (int key) -> void)
 // The host picks event choices; on clients the event window waits for the host
 HOOK_METHOD(ChoiceBox, MouseClick, (int x, int y) -> void)
 {
-    LOG_HOOK("HOOK_METHOD -> ChoiceBox::MouseClick -> Begin (CoopRun.cpp)
-")
+    LOG_HOOK("HOOK_METHOD -> ChoiceBox::MouseClick -> Begin (CoopRun.cpp)\n")
     if (this != EventWindow() || !InRun()) return super(x, y);
 
     if (IsFollower())
@@ -460,8 +459,7 @@ HOOK_METHOD(ChoiceBox, MouseClick, (int x, int y) -> void)
 
 HOOK_METHOD(ChoiceBox, KeyDown, (SDLKey key) -> bool)
 {
-    LOG_HOOK("HOOK_METHOD -> ChoiceBox::KeyDown -> Begin (CoopRun.cpp)
-")
+    LOG_HOOK("HOOK_METHOD -> ChoiceBox::KeyDown -> Begin (CoopRun.cpp)\n")
     if (this != EventWindow() || !InRun()) return super(key);
 
     // Swallowed, so number keys cannot pick a choice either

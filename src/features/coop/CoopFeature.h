@@ -32,4 +32,12 @@ namespace Run
     void ForceNextSeed(uint32_t seed);
 }
 
+// Allies' ships, seen from outside next to your own
+namespace Ally
+{
+    void OnPeerDisconnected(int peerId);
+    void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
+    void OnLoop();
+}
+
 }

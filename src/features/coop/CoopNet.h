@@ -14,7 +14,7 @@ namespace Coop
 {
 
 constexpr uint16_t DEFAULT_PORT = 47515;
-constexpr uint32_t PROTOCOL_VERSION = 5;
+constexpr uint32_t PROTOCOL_VERSION = 6;
 
 enum class Role
 {
