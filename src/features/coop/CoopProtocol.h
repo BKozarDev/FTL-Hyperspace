@@ -16,6 +16,14 @@ enum GameMsg : uint8_t
     MSG_GAME_BASE = 16,
     MSG_LOBBY_STATE = 16, // u8 inHangar, str blueprint, str shipName
     MSG_START_RUN = 17,   // u32 seed (host -> clients)
+    MSG_JUMP = 18,        // u8 kind (JUMP_BEACON: u32 x, u32 y | JUMP_SECTOR: u32 sector), u32 worldLevel (host -> clients)
+    MSG_PAUSE = 19,       // u8 paused
+};
+
+enum JumpKind : uint8_t
+{
+    JUMP_BEACON = 0,
+    JUMP_SECTOR = 1,
 };
 
 class Writer

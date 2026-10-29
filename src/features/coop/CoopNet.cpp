@@ -172,14 +172,14 @@ void Net::Send(ENetPeer *peer, const uint8_t *data, size_t size)
     enet_peer_send(peer, 0, packet);
 }
 
-void Net::SendToAll(const uint8_t *data, size_t size)
+void Net::SendToAll(const uint8_t *data, size_t size, int exceptPeerId)
 {
     if (!host) return;
 
     for (size_t i = 0; i < host->peerCount; ++i)
     {
         ENetPeer *peer = &host->peers[i];
-        if (peer->data) Send(peer, data, size);
+        if (peer->data && (int)i != exceptPeerId) Send(peer, data, size);
     }
 }
 

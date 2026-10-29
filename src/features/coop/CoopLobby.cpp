@@ -88,7 +88,8 @@ TextInput *IpInput()
 {
     if (!ipInput)
     {
-        ipInput = new TextInput(64, TextInput::AllowedCharType::ALLOW_ANY, "IP address");
+        // FTL draws the prompt in front of the text, so the placeholder is drawn by hand
+        ipInput = new TextInput(64, TextInput::AllowedCharType::ALLOW_ANY, "");
         ipInput->SetText(LoadLastIp());
     }
     return ipInput;
@@ -320,7 +321,16 @@ void DrawWindow()
         PrintText(w.x + 20, w.y + 112, "Or join by IP (ip or ip:port):");
 
         DrawPanel(IP_BOX, TextActive() ? GL_Color(0.15f, 0.25f, 0.3f, 1.f) : GL_Color(0.05f, 0.1f, 0.12f, 1.f));
-        IpInput()->OnRender(0, Point(IP_BOX.x + IP_BOX.w / 2, IP_BOX.y + 8));
+        if (IpInput()->GetText().empty() && !TextActive())
+        {
+            CSurface::GL_SetColor(GL_Color(0.5f, 0.6f, 0.65f, 1.f));
+            freetype::easy_printCenter(10, IP_BOX.x + IP_BOX.w / 2, IP_BOX.y + 8, "click to type the IP");
+            CSurface::GL_SetColor(COLOR_WHITE);
+        }
+        else
+        {
+            IpInput()->OnRender(0, Point(IP_BOX.x + IP_BOX.w / 2, IP_BOX.y + 8));
+        }
         DrawButton(JOIN_BOX, "JOIN");
     }
     else

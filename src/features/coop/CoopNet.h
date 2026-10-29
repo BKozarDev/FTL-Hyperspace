@@ -14,7 +14,7 @@ namespace Coop
 {
 
 constexpr uint16_t DEFAULT_PORT = 47515;
-constexpr uint32_t PROTOCOL_VERSION = 2;
+constexpr uint32_t PROTOCOL_VERSION = 3;
 
 enum class Role
 {
@@ -42,7 +42,7 @@ public:
     void SendPing();
 
     // Game messages (first byte >= MSG_GAME_BASE); peers are identified by a local index
-    void SendToAll(const uint8_t *data, size_t size);
+    void SendToAll(const uint8_t *data, size_t size, int exceptPeerId = -1);
     void SendTo(int peerId, const uint8_t *data, size_t size);
 
     Role GetRole() const

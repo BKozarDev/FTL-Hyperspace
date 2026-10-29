@@ -28,7 +28,11 @@ Coop::Net& Coop::GetNet()
         net.onLog = Coop::Log;
         net.onPeerConnected = Coop::Lobby::OnPeerConnected;
         net.onPeerDisconnected = Coop::Lobby::OnPeerDisconnected;
-        net.onMessage = Coop::Lobby::OnMessage;
+        net.onMessage = [](int peerId, uint8_t type, const uint8_t *payload, size_t size)
+        {
+            Coop::Lobby::OnMessage(peerId, type, payload, size);
+            Coop::Run::OnMessage(peerId, type, payload, size);
+        };
     }
     return net;
 }
@@ -136,4 +140,5 @@ HOOK_METHOD(CApp, OnLoop, () -> void)
     super();
     GetNet().Poll();
     Coop::Lobby::OnLoop();
+    Coop::Run::OnLoop();
 }
