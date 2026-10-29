@@ -14,7 +14,7 @@ namespace Coop
 {
 
 constexpr uint16_t DEFAULT_PORT = 47515;
-constexpr uint32_t PROTOCOL_VERSION = 7;
+constexpr uint32_t PROTOCOL_VERSION = 8;
 
 enum class Role
 {
@@ -42,8 +42,9 @@ public:
     void SendPing();
 
     // Game messages (first byte >= MSG_GAME_BASE); peers are identified by a local index
-    void SendToAll(const uint8_t *data, size_t size, int exceptPeerId = -1);
-    void SendTo(int peerId, const uint8_t *data, size_t size);
+    // Unreliable messages may be lost or dropped when outdated; for frequent state updates
+    void SendToAll(const uint8_t *data, size_t size, int exceptPeerId = -1, bool reliable = true);
+    void SendTo(int peerId, const uint8_t *data, size_t size, bool reliable = true);
 
     Role GetRole() const
     {
@@ -67,7 +68,7 @@ private:
 
     bool Init(std::string& error);
     void Log(const std::string& message);
-    void Send(_ENetPeer *peer, const uint8_t *data, size_t size);
+    void Send(_ENetPeer *peer, const uint8_t *data, size_t size, bool reliable = true);
     void SendHello(_ENetPeer *peer);
     void SendPingTo(_ENetPeer *peer, bool verbose);
     void HandlePacket(_ENetPeer *peer, const uint8_t *data, size_t size);

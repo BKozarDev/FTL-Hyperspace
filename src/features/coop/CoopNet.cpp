@@ -166,29 +166,30 @@ std::string Net::Status() const
     }
 }
 
-void Net::Send(ENetPeer *peer, const uint8_t *data, size_t size)
+// Reliable messages go on channel 0, unreliable ones on channel 1 so they never wait behind them
+void Net::Send(ENetPeer *peer, const uint8_t *data, size_t size, bool reliable)
 {
-    ENetPacket *packet = enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE);
-    enet_peer_send(peer, 0, packet);
+    ENetPacket *packet = enet_packet_create(data, size, reliable ? ENET_PACKET_FLAG_RELIABLE : 0);
+    enet_peer_send(peer, reliable ? 0 : 1, packet);
 }
 
-void Net::SendToAll(const uint8_t *data, size_t size, int exceptPeerId)
+void Net::SendToAll(const uint8_t *data, size_t size, int exceptPeerId, bool reliable)
 {
     if (!host) return;
 
     for (size_t i = 0; i < host->peerCount; ++i)
     {
         ENetPeer *peer = &host->peers[i];
-        if (peer->data && (int)i != exceptPeerId) Send(peer, data, size);
+        if (peer->data && (int)i != exceptPeerId) Send(peer, data, size, reliable);
     }
 }
 
-void Net::SendTo(int peerId, const uint8_t *data, size_t size)
+void Net::SendTo(int peerId, const uint8_t *data, size_t size, bool reliable)
 {
     if (!host || peerId < 0 || (size_t)peerId >= host->peerCount) return;
 
     ENetPeer *peer = &host->peers[peerId];
-    if (peer->data) Send(peer, data, size);
+    if (peer->data) Send(peer, data, size, reliable);
 }
 
 int Net::PeerId(ENetPeer *peer) const

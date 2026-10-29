@@ -1,6 +1,7 @@
 #pragma once
 
 #include "features/coop/CoopNet.h"
+#include "features/coop/CoopProtocol.h"
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -37,6 +38,13 @@ namespace Lobby
     void OnPeerDisconnected(int peerId);
     void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
     void OnLoop();
+
+    // The host's game mode (MODE_FLEET or MODE_CREW) for this session
+    uint8_t Mode();
+    inline bool CrewMode()
+    {
+        return Mode() == MODE_CREW && GetNet().IsConnected();
+    }
 }
 
 // Keeps a started run in step: host-led jumps, restarts and shared pause
@@ -68,6 +76,26 @@ namespace Combat
 {
     void OnPeerConnected(int peerId);
     void OnPeerDisconnected(int peerId);
+    void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
+    void OnLoop();
+}
+
+// Crew mode, host side: sends the ship's layout and state, walks the crew members
+// the other players control, and keeps the captain's hands off them
+namespace CrewHost
+{
+    void OnPeerConnected(int peerId);
+    void OnPeerDisconnected(int peerId);
+    void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
+    void OnLoop();
+}
+
+// Crew mode, client side: the full screen first-person view of a crew member
+namespace CrewView
+{
+    void Enter();
+    void Leave();
+    bool Active();
     void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
     void OnLoop();
 }

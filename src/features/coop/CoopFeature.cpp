@@ -55,6 +55,7 @@ Coop::Net& Coop::GetNet()
         {
             Coop::Lobby::OnPeerConnected(peerId);
             Coop::Combat::OnPeerConnected(peerId);
+            Coop::CrewHost::OnPeerConnected(peerId);
         };
         net.onPeerDisconnected = [](int peerId)
         {
@@ -62,6 +63,7 @@ Coop::Net& Coop::GetNet()
             Coop::Ally::OnPeerDisconnected(peerId);
             Coop::Combat::OnPeerDisconnected(peerId);
             Coop::Revive::OnPeerDisconnected(peerId);
+            Coop::CrewHost::OnPeerDisconnected(peerId);
         };
         net.onMessage = [](int peerId, uint8_t type, const uint8_t *payload, size_t size)
         {
@@ -70,6 +72,8 @@ Coop::Net& Coop::GetNet()
             Coop::Ally::OnMessage(peerId, type, payload, size);
             Coop::Combat::OnMessage(peerId, type, payload, size);
             Coop::Revive::OnMessage(peerId, type, payload, size);
+            Coop::CrewHost::OnMessage(peerId, type, payload, size);
+            Coop::CrewView::OnMessage(peerId, type, payload, size);
         };
     }
     return net;
@@ -188,4 +192,6 @@ HOOK_METHOD(CApp, OnLoop, () -> void)
     Coop::Ally::OnLoop();
     Coop::Combat::OnLoop();
     Coop::Revive::OnLoop();
+    Coop::CrewHost::OnLoop();
+    Coop::CrewView::OnLoop();
 }

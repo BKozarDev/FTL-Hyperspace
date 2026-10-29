@@ -34,12 +34,13 @@ struct Box
 };
 
 const Box TOGGLE_BOX = {1079, 100, 158, 24}; // Under Hyperspace's seed box
-const Box WINDOW_BOX = {440, 190, 400, 280};
+const Box WINDOW_BOX = {440, 170, 400, 320};
 const Box HOST_BOX = {WINDOW_BOX.x + 20, WINDOW_BOX.y + 70, 360, 28};
 const Box IP_BOX = {WINDOW_BOX.x + 20, WINDOW_BOX.y + 132, 250, 28};
 const Box JOIN_BOX = {WINDOW_BOX.x + 280, WINDOW_BOX.y + 132, 100, 28};
-const Box LEAVE_BOX = {WINDOW_BOX.x + 20, WINDOW_BOX.y + 232, 170, 28};
-const Box CLOSE_BOX = {WINDOW_BOX.x + 210, WINDOW_BOX.y + 232, 170, 28};
+const Box MODE_BOX = {WINDOW_BOX.x + 20, WINDOW_BOX.y + 232, 360, 28};
+const Box LEAVE_BOX = {WINDOW_BOX.x + 20, WINDOW_BOX.y + 274, 170, 28};
+const Box CLOSE_BOX = {WINDOW_BOX.x + 210, WINDOW_BOX.y + 274, 170, 28};
 
 constexpr auto STATE_RESEND = std::chrono::seconds(1);
 
@@ -63,12 +64,14 @@ struct LobbySettings
 {
     int difficulty = 1;
     bool advancedEdition = true;
+    uint8_t mode = Coop::MODE_FLEET;
 
     bool operator!=(const LobbySettings& other) const
     {
-        return difficulty != other.difficulty || advancedEdition != other.advancedEdition;
+        return difficulty != other.difficulty || advancedEdition != other.advancedEdition || mode != other.mode;
     }
 };
+uint8_t hostMode = Coop::MODE_FLEET; // chosen in the window when hosting
 LobbySettings sentSettings;
 LobbySettings hostSettings;
 bool haveHostSettings = false;
@@ -167,6 +170,7 @@ LobbySettings LocalSettings()
     LobbySettings settings;
     settings.difficulty = *Global::difficulty;
     settings.advancedEdition = G_->GetSettings()->bDlcEnabled;
+    settings.mode = hostMode;
     return settings;
 }
 
@@ -174,7 +178,7 @@ void SendSettings()
 {
     sentSettings = LocalSettings();
     Coop::Writer msg(Coop::MSG_LOBBY_SETTINGS);
-    msg.U8((uint8_t)sentSettings.difficulty).U8(sentSettings.advancedEdition ? 1 : 0);
+    msg.U8((uint8_t)sentSettings.difficulty).U8(sentSettings.advancedEdition ? 1 : 0).U8(sentSettings.mode);
     Coop::GetNet().SendToAll(msg.Data(), msg.Size());
 }
 
@@ -252,9 +256,9 @@ bool OnStartClicked()
 
     LobbySettings settings = LocalSettings();
     Coop::Writer msg(Coop::MSG_START_RUN);
-    msg.U32(seed).U8((uint8_t)settings.difficulty).U8(settings.advancedEdition ? 1 : 0);
+    msg.U32(seed).U8((uint8_t)settings.difficulty).U8(settings.advancedEdition ? 1 : 0).U8(settings.mode);
     net.SendToAll(msg.Data(), msg.Size());
-    Coop::Log("Starting the co-op run, seed " + std::to_string(seed));
+    Coop::Log(std::string(settings.mode == Coop::MODE_CREW ? "Starting the crew run" : "Starting the co-op run") + ", seed " + std::to_string(seed));
     return true;
 }
 
@@ -310,6 +314,10 @@ void OnWindowClick(Point p)
     else if (!inSession && JOIN_BOX.Contains(p))
     {
         Join();
+    }
+    else if (net.GetRole() != Coop::Role::Client && MODE_BOX.Contains(p))
+    {
+        hostMode = hostMode == Coop::MODE_FLEET ? Coop::MODE_CREW : Coop::MODE_FLEET;
     }
     else if (inSession && LEAVE_BOX.Contains(p))
     {
@@ -398,18 +406,28 @@ void DrawWindow()
             if (!player.inHangar) PrintText(w.x + 280, y, "not in hangar", GL_Color(1.f, 0.6f, 0.4f, 1.f));
         }
 
+        bool crew = Coop::Lobby::Mode() == Coop::MODE_CREW;
         std::string hint;
         if (net.GetRole() == Coop::Role::Host)
         {
             hint = players.empty() ? "Waiting for players to join..." : "Press START when everyone is ready";
         }
+        else if (!net.IsConnected())
+        {
+            hint = "Connecting...";
+        }
         else
         {
-            hint = net.IsConnected() ? "Pick your ship. The host starts the run." : "Connecting...";
+            hint = crew ? "You will be crew on the host's ship. The host starts." : "Pick your ship. The host starts the run.";
         }
         PrintText(w.x + 20, w.y + 205, hint, GL_Color(0.7f, 0.9f, 1.f, 1.f));
         DrawButton(LEAVE_BOX, "LEAVE");
     }
+
+    // Game mode: the host picks it, the others see it
+    std::string modeLabel = Coop::Lobby::Mode() == Coop::MODE_CREW ? "MODE: CREW - one ship, first person" : "MODE: FLEET - a ship each";
+    if (net.GetRole() == Coop::Role::Client) PrintText(w.x + 20, MODE_BOX.y + 8, modeLabel, GL_Color(1.f, 0.9f, 0.5f, 1.f));
+    else DrawButton(MODE_BOX, modeLabel);
 
     DrawButton(CLOSE_BOX, "CLOSE");
 }
@@ -427,6 +445,12 @@ namespace Coop
 {
 namespace Lobby
 {
+
+uint8_t Mode()
+{
+    if (GetNet().GetRole() == Role::Client) return haveHostSettings ? hostSettings.mode : MODE_FLEET;
+    return hostMode;
+}
 
 void OnPeerConnected(int peerId)
 {
@@ -461,6 +485,7 @@ void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size)
         LobbySettings settings;
         settings.difficulty = in.U8();
         settings.advancedEdition = in.U8() != 0;
+        settings.mode = in.U8();
         if (in.ok && GetNet().GetRole() == Role::Client)
         {
             // Started from OnLoop, not from inside the network poll
@@ -476,6 +501,7 @@ void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size)
         LobbySettings settings;
         settings.difficulty = in.U8();
         settings.advancedEdition = in.U8() != 0;
+        settings.mode = in.U8();
         if (in.ok && GetNet().GetRole() == Role::Client && settings.difficulty >= 0 && settings.difficulty <= 2)
         {
             hostSettings = settings;
@@ -521,7 +547,14 @@ void OnLoop()
     if (pendingStart)
     {
         pendingStart = false;
-        if (inHangar)
+        if (haveHostSettings && hostSettings.mode == MODE_CREW)
+        {
+            // Crew members do not fly a ship of their own: they board the host's
+            Log("The captain started the run");
+            windowOpen = false;
+            CrewView::Enter();
+        }
+        else if (inHangar)
         {
             Log("Host started the run, seed " + std::to_string(pendingSeed));
             if (haveHostSettings) ApplySettings(hostSettings);

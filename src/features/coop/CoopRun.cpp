@@ -354,7 +354,8 @@ void OnLoop()
 HOOK_METHOD(StarMap, GetNewLocation, () -> Location*)
 {
     LOG_HOOK("HOOK_METHOD -> StarMap::GetNewLocation -> Begin (CoopRun.cpp)\n")
-    if (!readyToTravel || !IsLeader()) return super();
+    // In crew mode the others have no ship of their own to move
+    if (!readyToTravel || !IsLeader() || Coop::Lobby::CrewMode()) return super();
 
     bool sectorJump = potentialLoc == &dummyNewSector;
     Location *target = potentialLoc;
@@ -374,7 +375,7 @@ HOOK_METHOD(StarMap, GetNewLocation, () -> Location*)
 HOOK_METHOD(WorldManager, Restart, () -> void)
 {
     LOG_HOOK("HOOK_METHOD -> WorldManager::Restart -> Begin (CoopRun.cpp)\n")
-    if (IsLeader() && !followingRestart)
+    if (IsLeader() && !followingRestart && !Coop::Lobby::CrewMode())
     {
         uint32_t seed = RandomSeed();
         Coop::Run::ForceNextSeed(seed);
@@ -454,7 +455,7 @@ HOOK_METHOD(ChoiceBox, MouseClick, (int x, int y) -> void)
 
     int before = selectedChoice;
     super(x, y);
-    if (IsLeader() && selectedChoice >= 0 && selectedChoice != before) SendHostChoice(*this);
+    if (IsLeader() && !Coop::Lobby::CrewMode() && selectedChoice >= 0 && selectedChoice != before) SendHostChoice(*this);
 }
 
 HOOK_METHOD(ChoiceBox, KeyDown, (SDLKey key) -> bool)
@@ -467,6 +468,6 @@ HOOK_METHOD(ChoiceBox, KeyDown, (SDLKey key) -> bool)
 
     int before = selectedChoice;
     bool ret = super(key);
-    if (IsLeader() && selectedChoice >= 0 && selectedChoice != before) SendHostChoice(*this);
+    if (IsLeader() && !Coop::Lobby::CrewMode() && selectedChoice >= 0 && selectedChoice != before) SendHostChoice(*this);
     return ret;
 }
