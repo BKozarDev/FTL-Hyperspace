@@ -58,6 +58,21 @@ bool pendingStart = false;
 uint32_t pendingSeed = 0;
 bool simulatingStart = false;
 
+// Host's difficulty (0 easy, 1 normal, 2 hard) and Advanced Edition switch
+struct LobbySettings
+{
+    int difficulty = 1;
+    bool advancedEdition = true;
+
+    bool operator!=(const LobbySettings& other) const
+    {
+        return difficulty != other.difficulty || advancedEdition != other.advancedEdition;
+    }
+};
+LobbySettings sentSettings;
+LobbySettings hostSettings;
+bool haveHostSettings = false;
+
 ShipBuilder& Builder()
 {
     return G_->GetCApp()->menu.shipBuilder;
@@ -147,6 +162,49 @@ void SendLocalState(bool inHangar)
     forceStateSend = false;
 }
 
+LobbySettings LocalSettings()
+{
+    LobbySettings settings;
+    settings.difficulty = *Global::difficulty;
+    settings.advancedEdition = G_->GetSettings()->bDlcEnabled;
+    return settings;
+}
+
+void SendSettings()
+{
+    sentSettings = LocalSettings();
+    Coop::Writer msg(Coop::MSG_LOBBY_SETTINGS);
+    msg.U8((uint8_t)sentSettings.difficulty).U8(sentSettings.advancedEdition ? 1 : 0);
+    Coop::GetNet().SendToAll(msg.Data(), msg.Size());
+}
+
+// Same changes the hangar buttons make (a selected button is inactive)
+void ApplySettings(const LobbySettings& settings)
+{
+    ShipBuilder& builder = Builder();
+    if (*Global::difficulty != settings.difficulty)
+    {
+        *Global::difficulty = settings.difficulty;
+        builder.easyButton.SetActive(settings.difficulty != 0);
+        builder.normalButton.SetActive(settings.difficulty != 1);
+        builder.hardButton.SetActive(settings.difficulty != 2);
+    }
+    if (G_->GetSettings()->bDlcEnabled != settings.advancedEdition)
+    {
+        G_->GetSettings()->bDlcEnabled = settings.advancedEdition;
+        if (builder.currentShip) builder.currentShip->CheckDlcEnabled();
+        builder.advancedOffButton.SetActive(settings.advancedEdition);
+        builder.advancedOnButton.SetActive(!settings.advancedEdition);
+    }
+}
+
+template <class Button>
+bool Hit(const Button& button, int x, int y)
+{
+    const Globals::Rect& r = button.hitbox;
+    return button.bActive && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+}
+
 // Clicks START the way a player would, so the run starts through FTL's own path
 void PressStart()
 {
@@ -192,8 +250,9 @@ bool OnStartClicked()
     uint32_t seed = PickSeed();
     Coop::Run::ForceNextSeed(seed);
 
+    LobbySettings settings = LocalSettings();
     Coop::Writer msg(Coop::MSG_START_RUN);
-    msg.U32(seed);
+    msg.U32(seed).U8((uint8_t)settings.difficulty).U8(settings.advancedEdition ? 1 : 0);
     net.SendToAll(msg.Data(), msg.Size());
     Coop::Log("Starting the co-op run, seed " + std::to_string(seed));
     return true;
@@ -373,6 +432,7 @@ void OnPeerConnected(int peerId)
 {
     players[peerId] = RemotePlayer();
     forceStateSend = true;
+    if (GetNet().GetRole() == Role::Host) SendSettings();
 }
 
 void OnPeerDisconnected(int peerId)
@@ -398,11 +458,28 @@ void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size)
     case MSG_START_RUN:
     {
         uint32_t seed = in.U32();
+        LobbySettings settings;
+        settings.difficulty = in.U8();
+        settings.advancedEdition = in.U8() != 0;
         if (in.ok && GetNet().GetRole() == Role::Client)
         {
             // Started from OnLoop, not from inside the network poll
             pendingSeed = seed;
             pendingStart = true;
+            hostSettings = settings;
+            haveHostSettings = true;
+        }
+        break;
+    }
+    case MSG_LOBBY_SETTINGS:
+    {
+        LobbySettings settings;
+        settings.difficulty = in.U8();
+        settings.advancedEdition = in.U8() != 0;
+        if (in.ok && GetNet().GetRole() == Role::Client && settings.difficulty >= 0 && settings.difficulty <= 2)
+        {
+            hostSettings = settings;
+            haveHostSettings = true;
         }
         break;
     }
@@ -419,7 +496,18 @@ void OnLoop()
 
     if (!inHangar) windowOpen = false;
     if (windowOpen && ipInput) ipInput->OnLoop();
-    if (net.GetRole() == Role::None) players.clear();
+    if (net.GetRole() == Role::None)
+    {
+        players.clear();
+        haveHostSettings = false;
+    }
+
+    // The host's difficulty and Advanced Edition switch apply to everyone
+    if (inHangar && net.IsConnected())
+    {
+        if (net.GetRole() == Role::Host && LocalSettings() != sentSettings) SendSettings();
+        if (net.GetRole() == Role::Client && haveHostSettings) ApplySettings(hostSettings);
+    }
 
     if (net.IsConnected())
     {
@@ -436,6 +524,7 @@ void OnLoop()
         if (inHangar)
         {
             Log("Host started the run, seed " + std::to_string(pendingSeed));
+            if (haveHostSettings) ApplySettings(hostSettings);
             Run::ForceNextSeed(pendingSeed);
             PressStart();
         }
@@ -486,9 +575,15 @@ HOOK_METHOD(ShipBuilder, MouseClick, (int x, int y) -> void)
         return;
     }
 
-    Globals::Rect hitbox = startButton.hitbox;
-    bool onStart = startButton.bActive && x >= hitbox.x && x < hitbox.x + hitbox.w && y >= hitbox.y && y < hitbox.y + hitbox.h;
-    if (onStart && !OnStartClicked()) return;
+    if (Hit(startButton, x, y) && !OnStartClicked()) return;
+
+    if (Coop::GetNet().GetRole() == Coop::Role::Client &&
+        (Hit(easyButton, x, y) || Hit(normalButton, x, y) || Hit(hardButton, x, y) ||
+         Hit(advancedOffButton, x, y) || Hit(advancedOnButton, x, y)))
+    {
+        Coop::Log("The host picks the difficulty and Advanced Edition");
+        return;
+    }
 
     super(x, y);
 }

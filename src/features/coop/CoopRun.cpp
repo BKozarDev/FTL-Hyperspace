@@ -1,8 +1,10 @@
 #include "Global.h"
 #include "features/coop/CoopFeature.h"
 #include "features/coop/CoopProtocol.h"
+#include <chrono>
 #include <cmath>
 #include <ctime>
+#include <deque>
 #include <random>
 
 // Keeps a co-op run in step once it has started from the lobby:
@@ -10,6 +12,7 @@
 //   sector is sent to the clients, which jump there the way Hyperspace forces the
 //   boss jump; clients cannot start jumps of their own while connected
 // - when the host restarts the run, the clients restart with the same seed
+// - the host picks event choices: the clients' event windows take the same choice
 // - pausing (space) on any side pauses everyone
 
 namespace
@@ -24,6 +27,18 @@ bool seedHookInstalled = false;
 bool pendingRestart = false;
 uint32_t pendingRestartSeed = 0;
 bool followingRestart = false;
+
+struct PendingChoice
+{
+    int index;
+    std::string text;
+    std::chrono::steady_clock::time_point received;
+};
+constexpr auto CHOICE_TIMEOUT = std::chrono::seconds(20);
+std::deque<PendingChoice> pendingChoices;
+// A choice goes to an event window only once: wait for it to close or change
+std::string appliedToText;
+bool eventWindowClosedSinceApply = true;
 
 bool InRun()
 {
@@ -46,6 +61,60 @@ bool IsLeader()
 StarMap& Map()
 {
     return G_->GetWorld()->starMap;
+}
+
+// The window of text events, not other choice boxes such as dialogs
+ChoiceBox *EventWindow()
+{
+    CApp *app = G_->GetCApp();
+    return app && app->gui ? &app->gui->choiceBox : nullptr;
+}
+
+void SendHostChoice(ChoiceBox& box)
+{
+    int index = box.selectedChoice;
+    std::string text = index < (int)box.choices.size() ? box.choices[index].text : "";
+
+    Coop::Writer msg(Coop::MSG_EVENT_CHOICE);
+    msg.U32((uint32_t)index).Str(text);
+    Coop::GetNet().SendToAll(msg.Data(), msg.Size());
+}
+
+// The host's choice by its text (blue options differ between ships), else by position
+int MatchChoice(const ChoiceBox& box, const PendingChoice& choice)
+{
+    int count = (int)box.choices.size();
+    for (int i = 0; i < count; ++i)
+    {
+        if (!choice.text.empty() && box.choices[i].text == choice.text) return i;
+    }
+    if (count == 0) return -1;
+    return choice.index < count ? choice.index : count - 1;
+}
+
+void ApplyPendingChoices()
+{
+    ChoiceBox *box = EventWindow();
+    bool open = G_->GetCApp()->gui->choiceBoxOpen;
+    if (!open) eventWindowClosedSinceApply = true;
+
+    auto now = std::chrono::steady_clock::now();
+    while (!pendingChoices.empty() && now - pendingChoices.front().received > CHOICE_TIMEOUT)
+    {
+        Coop::Log("Dropped the host's event choice, no event window appeared");
+        pendingChoices.pop_front();
+    }
+    if (pendingChoices.empty() || !open || box->selectedChoice >= 0) return;
+    if (!eventWindowClosedSinceApply && box->mainText == appliedToText) return;
+
+    int index = MatchChoice(*box, pendingChoices.front());
+    pendingChoices.pop_front();
+    if (index < 0) return;
+
+    box->potentialChoice = index;
+    box->selectedChoice = index;
+    appliedToText = box->mainText;
+    eventWindowClosedSinceApply = false;
 }
 
 uint32_t RandomSeed()
@@ -184,6 +253,15 @@ void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size)
         else if (kind == JUMP_SECTOR) FollowSectorJump(a, worldLevel);
         break;
     }
+    case MSG_EVENT_CHOICE:
+    {
+        PendingChoice choice;
+        choice.index = (int32_t)in.U32();
+        choice.text = in.Str();
+        choice.received = std::chrono::steady_clock::now();
+        if (in.ok && GetNet().GetRole() == Role::Client && InRun()) pendingChoices.push_back(choice);
+        break;
+    }
     case MSG_RESTART:
     {
         uint32_t seed = in.U32();
@@ -241,8 +319,13 @@ void OnLoop()
         wasPaused = false;
         lastSentTarget = nullptr;
         lastSentLevel = -1;
+        pendingChoices.clear();
+        eventWindowClosedSinceApply = true;
         return;
     }
+
+    if (IsFollower()) ApplyPendingChoices();
+    else pendingChoices.clear();
 
     // The jump has been taken, the next one is new even if it reuses the same location
     if (!Map().readyToTravel)
@@ -355,4 +438,37 @@ HOOK_METHOD(StarMap, KeyDown, (int key) -> void)
         finalSectorChoice = -1;
         Coop::Log("The host chooses the next sector");
     }
+}
+
+// The host picks event choices; on clients the event window waits for the host
+HOOK_METHOD(ChoiceBox, MouseClick, (int x, int y) -> void)
+{
+    LOG_HOOK("HOOK_METHOD -> ChoiceBox::MouseClick -> Begin (CoopRun.cpp)
+")
+    if (this != EventWindow() || !InRun()) return super(x, y);
+
+    if (IsFollower())
+    {
+        Coop::Log("The host picks the choice");
+        return;
+    }
+
+    int before = selectedChoice;
+    super(x, y);
+    if (IsLeader() && selectedChoice >= 0 && selectedChoice != before) SendHostChoice(*this);
+}
+
+HOOK_METHOD(ChoiceBox, KeyDown, (SDLKey key) -> bool)
+{
+    LOG_HOOK("HOOK_METHOD -> ChoiceBox::KeyDown -> Begin (CoopRun.cpp)
+")
+    if (this != EventWindow() || !InRun()) return super(key);
+
+    // Swallowed, so number keys cannot pick a choice either
+    if (IsFollower()) return true;
+
+    int before = selectedChoice;
+    bool ret = super(key);
+    if (IsLeader() && selectedChoice >= 0 && selectedChoice != before) SendHostChoice(*this);
+    return ret;
 }
