@@ -2,6 +2,7 @@
 #include <enet/enet.h>
 
 #include "CoopNet.h"
+#include "CoopProtocol.h"
 #include <cstdlib>
 #include <cstring>
 
@@ -125,6 +126,11 @@ void Net::Leave()
     for (size_t i = 0; i < host->peerCount; ++i)
     {
         ENetPeer *peer = &host->peers[i];
+        if (peer->data)
+        {
+            peer->data = nullptr;
+            if (onPeerDisconnected) onPeerDisconnected(PeerId(peer));
+        }
         if (peer->state != ENET_PEER_STATE_DISCONNECTED)
         {
             enet_peer_disconnect_now(peer, 0);
@@ -166,10 +172,36 @@ void Net::Send(ENetPeer *peer, const uint8_t *data, size_t size)
     enet_peer_send(peer, 0, packet);
 }
 
-void Net::Broadcast(const uint8_t *data, size_t size)
+void Net::SendToAll(const uint8_t *data, size_t size)
 {
-    ENetPacket *packet = enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE);
-    enet_host_broadcast(host, 0, packet);
+    if (!host) return;
+
+    for (size_t i = 0; i < host->peerCount; ++i)
+    {
+        ENetPeer *peer = &host->peers[i];
+        if (peer->data) Send(peer, data, size);
+    }
+}
+
+void Net::SendTo(int peerId, const uint8_t *data, size_t size)
+{
+    if (!host || peerId < 0 || (size_t)peerId >= host->peerCount) return;
+
+    ENetPeer *peer = &host->peers[peerId];
+    if (peer->data) Send(peer, data, size);
+}
+
+int Net::PeerId(ENetPeer *peer) const
+{
+    return (int)(peer - host->peers);
+}
+
+// Marks a peer as past the version handshake: from now on it sends and gets game messages
+void Net::PeerReady(ENetPeer *peer)
+{
+    if (peer->data) return;
+    peer->data = (void*)1;
+    if (onPeerConnected) onPeerConnected(PeerId(peer));
 }
 
 void Net::SendHello(ENetPeer *peer)
@@ -232,6 +264,7 @@ void Net::HandlePacket(ENetPeer *peer, const uint8_t *data, size_t size)
         {
             Log("Handshake with host OK");
         }
+        PeerReady(peer);
         break;
     }
     case MSG_PING:
@@ -255,7 +288,14 @@ void Net::HandlePacket(ENetPeer *peer, const uint8_t *data, size_t size)
         break;
     }
     default:
-        Log("Unknown message " + std::to_string(data[0]) + " from " + PeerName(peer));
+        if (data[0] >= MSG_GAME_BASE && peer->data)
+        {
+            if (onMessage) onMessage(PeerId(peer), data[0], data + 1, size - 1);
+        }
+        else
+        {
+            Log("Unknown message " + std::to_string(data[0]) + " from " + PeerName(peer));
+        }
         break;
     }
 }
@@ -289,6 +329,11 @@ void Net::Poll()
             break;
 
         case ENET_EVENT_TYPE_DISCONNECT:
+            if (event.peer->data)
+            {
+                event.peer->data = nullptr;
+                if (onPeerDisconnected) onPeerDisconnected(PeerId(event.peer));
+            }
             if (role == Role::Host)
             {
                 if (connectedPeers > 0) --connectedPeers;

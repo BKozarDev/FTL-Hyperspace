@@ -1,29 +1,43 @@
 #include "Global.h"
 #include "CommandConsole.h"
-#include "features/coop/CoopNet.h"
+#include "features/coop/CoopFeature.h"
 #include <boost/algorithm/string.hpp>
 #include <sstream>
 
 // Co-op prototype: connects game instances over ENet.
-// Console commands (press \ in a run):
+// Sessions are normally made in the hangar lobby (CoopLobby.cpp); these console
+// commands (press \ in a run) are for testing:
 //   COOP_HOST [port]          host a session
 //   COOP_JOIN <ip>[:port]     join a host
 //   COOP_PING                 ping connected players
 //   COOP_STATUS               show the session state
 //   COOP_LEAVE                close the session
 
-static void CoopLog(const std::string& message)
+void Coop::Log(const std::string& message)
 {
     hs_log_file("[coop] %s\n", message.c_str());
     PrintHelper::GetInstance()->AddMessage("[coop] " + message);
 }
 
-static Coop::Net& GetNet()
+Coop::Net& Coop::GetNet()
 {
     Coop::Net& net = Coop::Net::GetInstance();
     // Set lazily: static initialization order across files is unspecified
-    if (!net.onLog) net.onLog = CoopLog;
+    if (!net.onLog)
+    {
+        net.onLog = Coop::Log;
+        net.onPeerConnected = Coop::Lobby::OnPeerConnected;
+        net.onPeerDisconnected = Coop::Lobby::OnPeerDisconnected;
+        net.onMessage = Coop::Lobby::OnMessage;
+    }
     return net;
+}
+
+using Coop::GetNet;
+
+static void CoopLog(const std::string& message)
+{
+    Coop::Log(message);
 }
 
 static bool ParsePort(const std::string& text, uint16_t& port)
@@ -121,4 +135,5 @@ HOOK_METHOD(CApp, OnLoop, () -> void)
     LOG_HOOK("HOOK_METHOD -> CApp::OnLoop -> Begin (CoopFeature.cpp)\n")
     super();
     GetNet().Poll();
+    Coop::Lobby::OnLoop();
 }
