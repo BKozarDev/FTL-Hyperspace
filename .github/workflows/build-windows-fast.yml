@@ -1,0 +1,31 @@
+name: 'Build Windows (release only)'
+# Fast fork build: only the Windows release Hyperspace.dll for FTL 1.6.9
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+    # Allow manual triggering of the workflow
+
+concurrency:
+  group: build-windows-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build
+        run: buildscripts/windows/build-releaseonly-from-docker.sh
+        env:
+          HS_BUILD_BRANCH: ${{ github.ref_name }}
+          HS_BUILD_HASH: ${{ github.sha }}
+
+      - name: Store output
+        uses: actions/upload-artifact@v7
+        with:
+          name: hyperspace-windows-release
+          path: build-windows-release/Hyperspace.dll
+          retention-days: 14
