@@ -11,6 +11,7 @@
         "boost-format",
         "boost-crc",
         "discord-rpc",
+        "enet",
         "opengl",
         "lua",
         {

@@ -254,3 +254,10 @@ if(USE_DISCORD)
     target_link_libraries(Hyperspace PRIVATE DiscordRpc::DiscordRpc)
 endif()
 
+# Co-op networking (ENet)
+find_package(unofficial-enet CONFIG REQUIRED)
+target_link_libraries(Hyperspace PRIVATE unofficial::enet::enet)
+if(WIN32)
+    target_link_libraries(Hyperspace PRIVATE ws2_32 winmm)
+endif()
+
