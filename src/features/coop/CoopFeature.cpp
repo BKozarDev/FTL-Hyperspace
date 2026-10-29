@@ -51,20 +51,34 @@ Coop::Net& Coop::GetNet()
     if (!net.onLog)
     {
         net.onLog = Coop::Log;
-        net.onPeerConnected = Coop::Lobby::OnPeerConnected;
+        net.onPeerConnected = [](int peerId)
+        {
+            Coop::Lobby::OnPeerConnected(peerId);
+            Coop::Combat::OnPeerConnected(peerId);
+        };
         net.onPeerDisconnected = [](int peerId)
         {
             Coop::Lobby::OnPeerDisconnected(peerId);
             Coop::Ally::OnPeerDisconnected(peerId);
+            Coop::Combat::OnPeerDisconnected(peerId);
+            Coop::Revive::OnPeerDisconnected(peerId);
         };
         net.onMessage = [](int peerId, uint8_t type, const uint8_t *payload, size_t size)
         {
             Coop::Lobby::OnMessage(peerId, type, payload, size);
             Coop::Run::OnMessage(peerId, type, payload, size);
             Coop::Ally::OnMessage(peerId, type, payload, size);
+            Coop::Combat::OnMessage(peerId, type, payload, size);
+            Coop::Revive::OnMessage(peerId, type, payload, size);
         };
     }
     return net;
+}
+
+bool Coop::InRun()
+{
+    CApp *app = G_->GetCApp();
+    return app && !app->menu.bOpen && app->world && app->gui;
 }
 
 using Coop::GetNet;
@@ -172,4 +186,6 @@ HOOK_METHOD(CApp, OnLoop, () -> void)
     Coop::Lobby::OnLoop();
     Coop::Run::OnLoop();
     Coop::Ally::OnLoop();
+    Coop::Combat::OnLoop();
+    Coop::Revive::OnLoop();
 }

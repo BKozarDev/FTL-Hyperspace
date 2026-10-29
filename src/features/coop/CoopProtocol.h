@@ -21,12 +21,27 @@ enum GameMsg : uint8_t
     MSG_RESTART = 20,     // u32 seed (host -> clients)
     MSG_EVENT_CHOICE = 21, // u32 index, str choiceText (host -> clients)
     MSG_LOBBY_SETTINGS = 22, // u8 difficulty, u8 advancedEdition (host -> clients)
-    MSG_SHIP_STATE = 23,  // u8 origin, str blueprint, str name, u32 hull, u32 maxHull, u8 shields, u8 maxShields
+    MSG_SHIP_STATE = 23,  // u8 origin, str blueprint, str name, u32 hull, u32 maxHull, u8 shields, u8 maxShields, u8 flags
+    MSG_ASSIGN_KEY = 24,  // u8 key (host -> client): the client's player number
+    // Host -> clients, while the host has an enemy: str blueprint, u32 worldLevel, u32 locX, u32 locY,
+    // u32 hull, u8 systemCount, [u8 systemType, u8 health], u8 weaponCount, [u8 targetKey]
+    MSG_ENEMY_STATE = 25,
+    MSG_ENEMY_HIT = 26,   // u32 hullDamage, u8 systemCount, [u8 systemType, u8 damage] (client -> host)
+    MSG_ENEMY_PRESENCE = 27, // u8 matched: the client fights the host's enemy (client -> host)
+    MSG_WEAPON_FIRED = 28, // u8 weapon, u8 shooterKey (client -> host: shooter ignored; host -> clients)
+    MSG_REVIVE = 29,      // u8 targetKey, u8 reviverKey (to the host, which passes it on)
+    MSG_GAME_OVER = 30,   // everyone is wrecked (host -> clients)
 };
 
-// MSG_SHIP_STATE origin: the sender's own ship, or one the host relays (peer id + 1)
+// MSG_SHIP_STATE origin: the sender's own ship, or one the host relays (the client's key)
 constexpr uint8_t ORIGIN_SENDER = 255;
 constexpr uint8_t ORIGIN_HOST = 0;
+
+// MSG_SHIP_STATE flags
+constexpr uint8_t SHIP_WRECKED = 1;
+
+// MSG_ENEMY_STATE target for a weapon with no living target
+constexpr uint8_t TARGET_NONE = 255;
 
 enum JumpKind : uint8_t
 {

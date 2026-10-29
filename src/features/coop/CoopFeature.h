@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace Coop
 {
@@ -13,6 +14,22 @@ Net& GetNet();
 
 // Logs to FTL_HS.log and the on-screen message list
 void Log(const std::string& message);
+
+// Players are numbered by the host: the host is 0, a client is its peer id + 1.
+// -1 until a client has been told its number.
+constexpr int HOST_KEY = 0;
+int MyKey();
+inline int ClientKey(int peerId)
+{
+    return peerId + 1;
+}
+inline int ClientPeer(int key)
+{
+    return key - 1;
+}
+
+// True in a run (not in the menus or the hangar)
+bool InRun();
 
 namespace Lobby
 {
@@ -38,6 +55,36 @@ namespace Ally
     void OnPeerDisconnected(int peerId);
     void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
     void OnLoop();
+
+    // Allies (by player key) whose ship is neither destroyed nor wrecked
+    std::vector<int> AliveKeys();
+    // Allies (by player key) whose ship is wrecked and can be repaired
+    std::vector<int> WreckedKeys();
+}
+
+// One enemy for everyone: the host's copy decides, hits on any copy count,
+// and the host picks which player each enemy weapon shoots at
+namespace Combat
+{
+    void OnPeerConnected(int peerId);
+    void OnPeerDisconnected(int peerId);
+    void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
+    void OnLoop();
+}
+
+// A ship at zero hull is wrecked instead of lost while an ally lives;
+// the survivor repairs it for scrap after a victory or at a store
+namespace Revive
+{
+    void OnPeerDisconnected(int peerId);
+    void OnMessage(int peerId, uint8_t type, const uint8_t *payload, size_t size);
+    void OnLoop();
+
+    bool IsWrecked();
+    int Cost();
+    // Victory at this beacon, or a store here
+    bool CanReviveHere();
+    void RequestRevive(int key);
 }
 
 }
