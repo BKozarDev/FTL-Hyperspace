@@ -23,9 +23,17 @@ jobs:
           HS_BUILD_BRANCH: ${{ github.ref_name }}
           HS_BUILD_HASH: ${{ github.sha }}
 
+      - name: Package
+        # Everything a player copies into FTL: the DLL, its loader, the mod data and the test guide
+        run: |
+          mkdir -p package
+          cp build-windows-release/Hyperspace.dll "Release Files/Windows/mod/"* "Release Files/Windows/coop/"* package/
+          cd "Mod Files"
+          zip -qr ../package/Hyperspace.ftl * -x Hyperspace.ftl
+
       - name: Store output
         uses: actions/upload-artifact@v7
         with:
-          name: hyperspace-windows-release
-          path: build-windows-release/Hyperspace.dll
+          name: hyperspace-coop-windows
+          path: package/
           retention-days: 14
